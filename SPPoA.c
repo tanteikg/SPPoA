@@ -63,6 +63,7 @@
 #define WORD_SIZE_BITS 32
 
 #define RIGHTROTATE(x,n) (((x) >> (n)) | ((x) << (32-(n))))
+#define LEFTROTATE(x,n) (((x) << (n)) | ((x) >> (32-(n))))
 #define GETBIT(x, i) (((x) >> (i)) & 0x01)
 #define SETBIT(x, i, b)   x= (b)&1 ? (x)|(1 << (i)) : (x)&(~(1 << (i)))
 
@@ -291,6 +292,12 @@ static void mpc_RIGHTROTATE(uint32_t x[NUM_PARTIES], int j, uint32_t z[NUM_PARTI
 		z[i] = RIGHTROTATE(x[i], j);
 }
 
+static void mpc_LEFTROTATE(uint32_t x[NUM_PARTIES], int j, uint32_t z[NUM_PARTIES]) {
+
+	for (int i=0; i < NUM_PARTIES;i++)
+		z[i] = LEFTROTATE(x[i], j);
+}
+
 static void mpc_RIGHTSHIFT(uint32_t x[NUM_PARTIES], int j, uint32_t z[NUM_PARTIES]) {
 	for (int i=0; i < NUM_PARTIES;i++)
 		z[i] = x[i] >> j;
@@ -375,6 +382,18 @@ static void aux_ADD(uint32_t x[NUM_PARTIES], uint32_t y[NUM_PARTIES], uint32_t z
 
 }
 
+static void aux_OR(uint32_t x[NUM_PARTIES], uint32_t y[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+
+	mpc_NEGATE(x, t0);
+	mpc_NEGATE(y, t1);
+	aux_AND(t0, t1, t2, randomness, randCount);
+	mpc_NEGATE(t2, z);
+}
+
 static void aux_MAJ(uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char * randomness[NUM_PARTIES], int* randCount) {
 	uint32_t t0[NUM_PARTIES];
 	uint32_t t1[NUM_PARTIES];
@@ -396,6 +415,169 @@ static void aux_CH(uint32_t e[NUM_PARTIES], uint32_t f[NUM_PARTIES], uint32_t g[
 
 }
 
+static void mpc_F(uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES]) {
+
+	uint32_t t0[NUM_PARTIES];
+	mpc_XOR(x1,x2,t0);
+	mpc_XOR(t0,x3,z);
+}
+
+static void aux_G(uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+
+	aux_AND(x1, x2, t0, randomness, randCount);
+	mpc_NEGATE(x1,t1);
+
+	aux_AND(t1, x3, t2, randomness, randCount);
+	aux_OR(t0, t2, z, randomness, randCount);
+
+}
+
+static void aux_H(uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int * randCount) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+
+	mpc_NEGATE(x2,t0);
+
+	aux_OR(x1, t0, t1, randomness, randCount);
+
+	mpc_XOR(t1,x3,z);
+}
+
+static void aux_I(uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int * randCount) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+
+	aux_AND(x1, x3, t0, randomness, randCount);
+	mpc_NEGATE(x3,t1);
+
+	aux_AND(x2, t1, t2, randomness, randCount);
+	aux_OR(t0, t2, z, randomness, randCount);
+}
+
+static void aux_J(uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int * randCount) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+
+	mpc_NEGATE(x3,t0);
+
+	aux_OR(x2, t0, t1, randomness, randCount);
+
+	mpc_XOR(t1,x1,z);
+}
+
+static void aux_FF(uint32_t s, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+
+	mpc_F(b,c,d,t0);
+
+	aux_ADD(t0, x, t1, randomness, randCount);
+	aux_ADD(t1, a, t2, randomness, randCount);
+
+	mpc_LEFTROTATE(t2,s,t3);
+
+	aux_ADD(t3, e, a, randomness, randCount);
+
+	mpc_LEFTROTATE(c,10,c);
+}
+
+static void aux_GG(uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+        uint32_t t0[NUM_PARTIES];
+        uint32_t t1[NUM_PARTIES];
+        uint32_t t2[NUM_PARTIES];
+        uint32_t t3[NUM_PARTIES];
+        uint32_t t4[NUM_PARTIES];
+
+	aux_G(b, c, d, t0, randomness, randCount);
+
+	aux_ADD(t0, x, t1, randomness, randCount);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+
+	aux_ADD(t1, t0, t2, randomness, randCount);
+	aux_ADD(t2, a, t3, randomness, randCount);
+
+	mpc_LEFTROTATE(t3,s,t4);
+
+	aux_ADD(t4, e, a, randomness, randCount);
+
+	mpc_LEFTROTATE(c,10,c);
+}
+
+static void aux_HH(uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+        uint32_t t0[NUM_PARTIES];
+        uint32_t t1[NUM_PARTIES];
+        uint32_t t2[NUM_PARTIES];
+        uint32_t t3[NUM_PARTIES];
+        uint32_t t4[NUM_PARTIES];
+
+	aux_H(b, c, d, t0, randomness, randCount);
+
+	aux_ADD(t0, x, t1, randomness, randCount);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+
+	aux_ADD(t1, t0, t2, randomness, randCount);
+	aux_ADD(t2, a, t3, randomness, randCount);
+
+	mpc_LEFTROTATE(t3,s,t4);
+
+	aux_ADD(t4, e, a, randomness, randCount);
+
+	mpc_LEFTROTATE(c,10,c);
+}
+
+static void aux_II(uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+        uint32_t t0[NUM_PARTIES];
+        uint32_t t1[NUM_PARTIES];
+        uint32_t t2[NUM_PARTIES];
+        uint32_t t3[NUM_PARTIES];
+        uint32_t t4[NUM_PARTIES];
+
+	aux_I(b, c, d, t0, randomness, randCount);
+
+	aux_ADD(t0, x, t1, randomness, randCount);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+
+	aux_ADD(t1, t0, t2, randomness, randCount);
+	aux_ADD(t2, a, t3, randomness, randCount);
+
+	mpc_LEFTROTATE(t3,s,t4);
+
+	aux_ADD(t4, e, a, randomness, randCount);
+
+	mpc_LEFTROTATE(c,10,c);
+}
+
+static void aux_JJ(uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount) {
+        uint32_t t0[NUM_PARTIES];
+        uint32_t t1[NUM_PARTIES];
+        uint32_t t2[NUM_PARTIES];
+        uint32_t t3[NUM_PARTIES];
+        uint32_t t4[NUM_PARTIES];
+
+	aux_J(b, c, d, t0, randomness, randCount);
+
+	aux_ADD(t0, x, t1, randomness, randCount);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+
+	aux_ADD(t1, t0, t2, randomness, randCount);
+	aux_ADD(t2, a, t3, randomness, randCount);
+
+	mpc_LEFTROTATE(t3,s,t4);
+
+	aux_ADD(t4, e, a, randomness, randCount);
+
+	mpc_LEFTROTATE(c,10,c);
+}
 
 static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char shares[NUM_PARTIES][SHA256_INPUTS])
 {
@@ -700,6 +882,45 @@ static void mpc_ADD(uint32_t x_state, uint32_t y_state, uint32_t * z_state, uint
 }
 
 
+static int mpc_OR_verify(uint32_t x_state, uint32_t y_state, uint32_t * z_state, uint32_t x[NUM_PARTIES], uint32_t y[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char* randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	mpc_NEGATE(x, t0);
+	t0_state = ~x_state ;
+
+	mpc_NEGATE(y, t1);
+	t1_state = ~y_state;
+
+	if (mpc_AND_verify(t0_state, t1_state, &t2_state, t0, t1, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_NEGATE(t2, z);
+	*z_state = ~t2_state;
+
+	return 0;
+}
+
+static void mpc_OR(uint32_t x_state, uint32_t y_state, uint32_t * z_state, uint32_t x[NUM_PARTIES], uint32_t y[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char* randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	mpc_NEGATE(x, t0);
+	t0_state = ~x_state ;
+
+	mpc_NEGATE(y, t1);
+	t1_state = ~y_state;
+
+	mpc_AND(t0_state, t1_state, &t2_state, t0, t1, t2, randomness, randCount, views, countY);
+
+	mpc_NEGATE(t2, z);
+	*z_state = ~t2_state;
+}
+
 
 static int mpc_MAJ_verify(uint32_t a_state, uint32_t b_state, uint32_t c_state, uint32_t * z_state, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char* randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
 	uint32_t t0[NUM_PARTIES];
@@ -764,6 +985,421 @@ static void mpc_CH(uint32_t e_state, uint32_t f_state, uint32_t g_state, uint32_
 	mpc_XOR(t0,g,z);
 	*z_state = t0_state ^ g_state;
 
+}
+
+
+static int mpc_G_verify(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	if (mpc_AND_verify(x1_state, x2_state, &t0_state, x1, x2, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	mpc_NEGATE(x1,t1);
+	t1_state = ~x1_state;
+
+	if (mpc_AND_verify(t1_state, x3_state, &t2_state, t1, x3, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_OR_verify(t0_state, t2_state, z_state, t0, t2, z, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	return 0;
+
+}
+
+static void mpc_G(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	mpc_AND(x1_state, x2_state, &t0_state, x1, x2, t0, randomness, randCount, views, countY);
+	mpc_NEGATE(x1,t1);
+	t1_state = ~x1_state;
+
+	mpc_AND(t1_state, x3_state, &t2_state, t1, x3, t2, randomness, randCount, views, countY);
+	mpc_OR(t0_state, t2_state, z_state, t0, t2, z, randomness, randCount, views, countY);
+
+}
+
+static int mpc_H_verify(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t0_state, t1_state;
+
+	mpc_NEGATE(x2,t0);
+	t0_state = ~x2_state;
+
+	if (mpc_OR_verify(x1_state, t0_state, &t1_state, x1, t0, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_XOR(t1,x3,z);
+	*z_state = t1_state ^ x3_state;
+	return 0;
+}
+
+static void mpc_H(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t0_state, t1_state;
+
+	mpc_NEGATE(x2,t0);
+	t0_state = ~x2_state;
+
+	mpc_OR(x1_state, t0_state, &t1_state, x1, t0, t1, randomness, randCount, views, countY);
+
+	mpc_XOR(t1,x3,z);
+	*z_state = t1_state ^ x3_state;
+}
+
+static int mpc_I_verify(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	if (mpc_AND_verify(x1_state, x3_state, &t0_state, x1, x3, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	mpc_NEGATE(x3,t1);
+	t1_state = ~x3_state;
+
+	if (mpc_AND_verify(x2_state, t1_state, &t2_state, x2, t1, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_OR_verify(t0_state, t2_state, z_state, t0, t2, z, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	return 0;
+}
+
+static void mpc_I(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state;
+
+	mpc_AND(x1_state, x3_state, &t0_state, x1, x3, t0, randomness, randCount, views, countY);
+	mpc_NEGATE(x3,t1);
+	t1_state = ~x3_state;
+
+	mpc_AND(x2_state, t1_state, &t2_state, x2, t1, t2, randomness, randCount, views, countY);
+	mpc_OR(t0_state, t2_state, z_state, t0, t2, z, randomness, randCount, views, countY);
+}
+
+static int mpc_J_verify(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t0_state, t1_state;
+
+	mpc_NEGATE(x3,t0);
+	t0_state = ~x3_state;
+
+	if (mpc_OR_verify(x2_state, t0_state, &t1_state, x2, t0, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_XOR(t1,x1,z);
+	*z_state = t1_state ^ x1_state;
+	return 0;
+}
+
+static void mpc_J(uint32_t x1_state, uint32_t x2_state, uint32_t x3_state, uint32_t *z_state, uint32_t x1[NUM_PARTIES], uint32_t x2[NUM_PARTIES], uint32_t x3[NUM_PARTIES], uint32_t z[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t0_state, t1_state;
+
+	mpc_NEGATE(x3,t0);
+	t0_state = ~x3_state;
+
+	mpc_OR(x2_state, t0_state, &t1_state, x2, t0, t1, randomness, randCount, views, countY);
+
+	mpc_XOR(t1,x1,z);
+	*z_state = t1_state ^ x1_state;
+}
+
+static int mpc_FF_verify(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state;
+
+	mpc_F(b,c,d,t0);
+	t0_state = b_state ^ (*c_state) ^ d_state;
+
+	if (mpc_ADD_verify(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_ADD_verify(t1_state, *a_state, &t2_state, t1, a, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(t2,s,t3);
+	t3_state = LEFTROTATE(t2_state,s);
+
+	if (mpc_ADD_verify(t3_state, e_state, a_state, t3, e, a, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+	return 0;
+}
+
+static void mpc_FF(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state;
+
+	mpc_F(b,c,d,t0);
+	t0_state = b_state ^ (*c_state) ^ d_state;
+
+	mpc_ADD(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY);
+	mpc_ADD(t1_state, *a_state, &t2_state, t1, a, t2, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(t2,s,t3);
+	t3_state = LEFTROTATE(t2_state,s);
+
+	mpc_ADD(t3_state, e_state, a_state, t3, e, a, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+}
+
+static int mpc_GG_verify(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	if (mpc_G_verify(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	if (mpc_ADD_verify(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	if (mpc_ADD_verify(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_ADD_verify(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	if (mpc_ADD_verify(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+	return 0;
+}
+
+static void mpc_GG(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	mpc_G(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY);
+
+	mpc_ADD(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	mpc_ADD(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY);
+	mpc_ADD(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	mpc_ADD(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+}
+
+static int mpc_HH_verify(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	if (mpc_H_verify(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	if (mpc_ADD_verify(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	if (mpc_ADD_verify(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_ADD_verify(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	if (mpc_ADD_verify(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+	return 0;
+}
+
+static void mpc_HH(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	mpc_H(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY);
+
+	mpc_ADD(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	mpc_ADD(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY);
+	mpc_ADD(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	mpc_ADD(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+}
+
+static int mpc_II_verify(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	if (mpc_I_verify(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	if (mpc_ADD_verify(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	if (mpc_ADD_verify(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_ADD_verify(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	if (mpc_ADD_verify(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+	return 0;
+}
+
+static void mpc_II(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	mpc_I(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY);
+
+	mpc_ADD(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	mpc_ADD(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY);
+	mpc_ADD(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	mpc_ADD(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+}
+
+static int mpc_JJ_verify(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY, int unopenParty) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	if (mpc_I_verify(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	if (mpc_ADD_verify(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	if (mpc_ADD_verify(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY, unopenParty))
+		return -1;
+	if (mpc_ADD_verify(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	if (mpc_ADD_verify(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY, unopenParty))
+		return -1;
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
+	return 0;
+}
+
+static void mpc_JJ(uint32_t *a_state, uint32_t b_state, uint32_t *c_state, uint32_t d_state, uint32_t e_state, uint32_t x_state, uint32_t s, uint32_t C, uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[NUM_PARTIES], uint32_t d[NUM_PARTIES], uint32_t e[NUM_PARTIES], uint32_t x[NUM_PARTIES], unsigned char *randomness[NUM_PARTIES], int* randCount, View views[NUM_PARTIES], int* countY) {
+	uint32_t t0[NUM_PARTIES];
+	uint32_t t1[NUM_PARTIES];
+	uint32_t t2[NUM_PARTIES];
+	uint32_t t3[NUM_PARTIES];
+	uint32_t t4[NUM_PARTIES];
+	uint32_t t0_state, t1_state, t2_state, t3_state, t4_state;
+
+	mpc_J(b_state, *c_state, d_state, &t0_state, b, c, d, t0, randomness, randCount, views, countY);
+
+	mpc_ADD(t0_state, x_state, &t1_state, t0, x, t1, randomness, randCount, views, countY);
+	for (int i = 0; i < NUM_PARTIES; i++)
+		t0[i] = C;
+	t0_state = C;
+
+	mpc_ADD(t1_state, t0_state, &t2_state, t1, t0, t2, randomness, randCount, views, countY);
+	mpc_ADD(t2_state, *a_state, &t3_state, t2, a, t3, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(t3,s,t4);
+	t4_state = LEFTROTATE(t3_state,s);
+
+	mpc_ADD(t4_state, e_state, a_state, t4, e, a, randomness, randCount, views, countY);
+
+	mpc_LEFTROTATE(c,10,c);
+	*c_state = LEFTROTATE(*c_state,10);
 }
 
 static uint32_t consol(uint32_t array[NUM_PARTIES])
