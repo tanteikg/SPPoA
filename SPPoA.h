@@ -90,10 +90,12 @@ static const uint32_t hHH =  0x6d703ef3;
 static const uint32_t hII =  0x5c4dd124;
 static const uint32_t hJJ =  0x50a28be6;
 
-#define ySize 736
-//#define ySize 1607  
+//#define ySize 736
+#define ySize 1607  
 //#define rSize 6416
-#define rSize (45392/8) 
+//#define rSize (45392/8) 
+#define rSize 12512  // (100092/8 + 1) 
+
 #define NUM_PARTIES 32
 #define NUM_ROUNDS 20 
 #define SHA256_INPUTS 64
