@@ -97,9 +97,9 @@ static const uint32_t hJJ =  0x50a28be6;
 #define rSize 12512  // (100092/8 + 1) 
 
 #define NUM_PARTIES 32
-#define NUM_ROUNDS 20 
+#define NUM_ROUNDS 5 
 #define SHA256_INPUTS 64
-#define NUM_ONLINE 7 
+#define NUM_ONLINE 2 
 
 #define RIPEMD160_DIGEST_LENGTH 20
 #define SHA256_DIGEST_LENGTH 32

@@ -73,6 +73,13 @@
 #define MAX_DIGEST_SIZE 64
 #define SHA256_DIGEST_SIZE 32
 
+static void printdigest(unsigned char * digest)
+{
+	for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+		fprintf(stderr,"%02x",digest[i]);
+	fprintf(stderr,"\n");
+}
+
 static int RAND_bytes(unsigned char * buf, int numBytes)
 {
 	while (numBytes-- > 0)
@@ -86,7 +93,7 @@ static int RAND_bytes(unsigned char * buf, int numBytes)
 static void Compute_RAND(unsigned char * output, int size, unsigned char * seed, int seedLen)
 {
 	unsigned char hash[SHA256_DIGEST_LENGTH];
-	char * namestr = "pQCee AStablish";
+	char * namestr = "pQCee BeQuantumReady";
 	char * tempptr = output;
 	uint32_t count = 1;
 
@@ -125,7 +132,7 @@ static void getAllRandomness(unsigned char key[16], unsigned char *randomness) {
         unsigned char * iv = (unsigned char *) "01234567890123456";
         unsigned char *plaintext =
                         (unsigned char *)"pQCee0SPPoA00000";
-        unsigned char hashbuf[SHA256_BLOCK_SIZE];
+        unsigned char hashbuf[SHA256_DIGEST_LENGTH];
         int len;
         sha256_init(&ctx);
         sha256_update(&ctx,iv,strlen((char *)iv));
@@ -134,7 +141,7 @@ static void getAllRandomness(unsigned char key[16], unsigned char *randomness) {
         sha256_final(&ctx,hashbuf);
         for(int j=0;j<(rSize/16);j++) {
                 sha256_init(&ctx);
-                sha256_update(&ctx,hashbuf,SHA256_BLOCK_SIZE);
+                sha256_update(&ctx,hashbuf,SHA256_DIGEST_LENGTH);
                 sha256_final(&ctx,hashbuf);
                 memcpy(&randomness[j*16],hashbuf,16);
         }
@@ -319,7 +326,7 @@ static void mpc_ENDIAN(uint32_t x[NUM_PARTIES], uint32_t z[NUM_PARTIES])
 {
 	for (int i=0; i < NUM_PARTIES;i++)
 	{
-		z[i] = x[i] >> 24 + ((x[i] & 0x00FF0000)>> 8) + ((x[i] & 0x0000FF00) << 8) + ((x[i] & 0xFF) << 16) ;
+		z[i] = (x[i] >> 24) + ((x[i] & 0x00FF0000)>> 8) + ((x[i] & 0x0000FF00) << 8) + ((x[i] & 0xFF) << 24) ;
 	}
 }
 
@@ -735,7 +742,8 @@ static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char s
 	for (int i = 0; i < 8; i++)	
 	{
 		mpc_ENDIAN(hHa[i],X[i]);	
-		memcpy(X[8+i],ripeshares[i*4],4*NUM_PARTIES);
+		for (int j = 0; j < NUM_PARTIES; j++)
+			memcpy(&X[8+i][j],&ripeshares[j][i*4],4);
 	}
 	for (int i = 0; i < 5; i++)
 		for (int j = 0; j < NUM_PARTIES; j++)
@@ -932,7 +940,7 @@ static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char s
 	aux_ADD(t0,bbb,buf[3],randomness,&randCount);
 	aux_ADD(bb,buf[0],t0,randomness,&randCount);
 	aux_ADD(t0,ccc,buf[4],randomness,&randCount);
-	printf("computeAuxTape: randCount %d\n",randCount);
+//	printf("computeAuxTape: randCount %d\n",randCount);
 
 	return 0;
 	
@@ -1644,7 +1652,6 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 		printf("Input too long, aborting!");
 		return -1;
 	}
-
 	int randCount=0;
 
 	uint32_t w_state[64] = {0};
@@ -1670,10 +1677,10 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 								| (inputs[j * 4 + 2] << 8) | inputs[j * 4 + 3];
 		}
 
-		memcpy(masked_input, (unsigned char *) w_state, 64);
+		memcpy(masked_input, (unsigned char *) w_state, SHA256_INPUTS);
 	}
 	else // verify
-		memcpy((unsigned char *)w_state,masked_input,64);
+		memcpy((unsigned char *)w_state,masked_input, SHA256_INPUTS);
 
 	uint32_t s0[NUM_PARTIES], s1[NUM_PARTIES];
 	uint32_t t0[NUM_PARTIES], t1[NUM_PARTIES];
@@ -1925,7 +1932,23 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 			return -1;
 	}
 
-	
+	if (VERBOSE)
+	{
+		unsigned char temp;
+		fprintf(stderr,"after sha256: ");
+		for (int i = 0; i < 8; i++)
+		{
+			temp = hHa_state[i]>>24;
+			fprintf(stderr,"%02X",temp);
+			temp = hHa_state[i]>>16;
+			fprintf(stderr,"%02X",temp);
+			temp = hHa_state[i]>>8;
+			fprintf(stderr,"%02X",temp);
+			temp = hHa_state[i];
+			fprintf(stderr,"%02X",temp);
+		}
+		fprintf(stderr,"\n");
+	}	
 	// ripemd160
 
 	uint32_t X[16][NUM_PARTIES];
@@ -1946,19 +1969,21 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 	uint32_t aa_state,bb_state,cc_state,dd_state,ee_state;
 	uint32_t aaa_state,bbb_state,ccc_state,ddd_state,eee_state;
 
-	memset(back8,8,32);
+	memset(back8,0,32);
 	back8[0] = 0x80;
-	back8[30] = 512 >> 16;
-	
+	back8[25] = 256 >> 8;
+
+	memset(X_state,0,16*4);	
 	for (int i = 0; i < 8; i++)
 	{
 		mpc_ENDIAN(hHa[i],X[i]);
-		X_state[i] = hHa_state[i] >> 24 + ((hHa_state[i] & 0x00FF0000)>> 8) + ((hHa_state[i] & 0x0000FF00) << 8) + ((hHa_state[i] & 0xFF) << 16) ;
-	
-		memcpy(X[8+i],ripeshares[i*4],4*NUM_PARTIES);	
+		X_state[i] = (hHa_state[i] >> 24) + ((hHa_state[i] & 0x00FF0000)>> 8)+((hHa_state[i] & 0x0000FF00) << 8) + ((hHa_state[i] & 0xFF) << 24) ;
 		X_state[i+8] = (((uint32_t)back8[i * 4 + 0] << 0) | ((uint32_t)back8[i * 4 + 1] << 8) | ((uint32_t)back8[i * 4 + 2] << 16) | ((uint32_t)back8[i * 4 + 3] << 24)) ;
 		for (int j = 0; j < NUM_PARTIES; j++)
+		{
+			memcpy(&X[i+8][j],&ripeshares[j][i*4],4);	
 			X_state[i+8] ^= X[i+8][j];
+		}
 	}
 	for (int i = 0; i < 5; i++)
 		for (int j = 0; j < NUM_PARTIES; j++)
@@ -2216,17 +2241,11 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 		masked_result[i*4+3] = t0_state;
 
 	}
-//	printf("mpc_compute: randCount %d\n",randCount);
+//	printf("mpc_compute: Ycount %d\n",*countY);;
 
 	return 0;
 }
 
-static void printdigest(unsigned char * digest)
-{
-	for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-		fprintf(stderr,"%02x",digest[i]);
-	fprintf(stderr,"\n");
-}
 
 /**
  * Copyright (c) 2012-2014 Luke Dashjr
@@ -2497,6 +2516,7 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 	unsigned char pubkey[KEY_LEN];
 	unsigned char input[SHA256_INPUTS] = {0}; // 512 bits
 
+	memset(input,0,SHA256_INPUTS);
 	memset(message,0,sizeof(message));
 	strncpy(message,username,USER_LEN);
 	strcat(message," knows the public key to this address");
@@ -2538,7 +2558,6 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 			Compute_RAND((unsigned char *)&(ripeshares[j][k]),32,(unsigned char *)keys[j][k],15);
 		}
 	}
-
         //Generating randomness
 	unsigned char *randomness[NUM_ROUNDS][NUM_PARTIES];
 
@@ -2567,17 +2586,6 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 			sha256_update(&ctx, keys[k][j], 16);
 			if (j == (NUM_PARTIES-1))
 			{
-/*
-				size_t pos = 0;
-				memset(auxBits,0,rSize/8+1);
-				// need to include aux tape
-				for (int i = 1; i < rSize; i+=2)
-				{
-					uint8_t auxBit = getBit(randomness[k][j],i);
-					setBit(auxBits[k],pos,auxBit);
-					pos++;
-				}
-*/
 				sha256_update(&ctx, randomness[k][j], rSize);
 			}
 			sha256_update(&ctx, rs[k][j], 4);
@@ -2616,9 +2624,9 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 			printdigest(H2[k]);
 		}
 		sha256_update(&H2ctx, H2[k], SHA256_DIGEST_LENGTH);
-		if (k == 0) 
+		if ((k == 0) && (VERBOSE))
 		{
-			fprintf(stderr,"Created proof for hash:");
+			fprintf(stderr,"Created proof for :");
 			for (int j=0;j<RIPEMD160_DIGEST_LENGTH;j++)
 			{
 				unsigned char temp = masked_result[k][j];
@@ -3030,7 +3038,7 @@ int main(int argc, char * argv[])
 	if ((argv[1][0] == '1') && (argc == 5))
 	{
 		rc = SPPoA_Generate_Proof(argv[2],argv[3],argv[4]);
-	//	printf("%s",rc);
+		printf("%s",rc);
 	}
 	else if ((argv[1][0] == '2') && (argc == 3))
 	{
