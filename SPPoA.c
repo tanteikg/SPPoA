@@ -55,6 +55,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <gmp.h>
 #include "SPPoA.h"
 #include "sha256.h"
 
@@ -291,6 +292,194 @@ static uint32_t tapesToWord(unsigned char * randomness[NUM_PARTIES],int * randCo
 	*randCount += 1;
 
 	return shares;  
+}
+
+
+static int ecInvMod(MP_INT * inv, MP_INT * k, MP_INT * p)
+{
+	MP_INT t1,t2,s1,s2,r1,r2;
+	MP_INT q,temp1,temp2;
+	
+	mpz_init(&t1);
+	mpz_init(&t2);
+	mpz_init(&s1);
+	mpz_init(&s2);
+	mpz_init(&r1);
+	mpz_init(&r2);
+	mpz_init(&q);
+	mpz_init(&temp1);
+	mpz_init(&temp2);
+
+	if (mpz_cmp_ui(k,0)<0)
+	{
+		mpz_neg(&t2,k);
+		ecInvMod(&t1,&t2,p);
+		mpz_sub(inv,p,&t1);
+	}
+	else
+	{
+		mpz_set_ui(&s1,0);
+		mpz_set_ui(&s2,1);
+		mpz_set_ui(&t1,1);
+		mpz_set_ui(&t2,0);
+		mpz_set(&r1,p);
+		mpz_set(&r2,k);
+
+		while (mpz_cmp_ui(&r1,0))
+		{
+			mpz_div(&q,&r2,&r1);
+
+			mpz_mul(&temp1,&q,&r1);
+			mpz_sub(&temp2,&r2,&temp1);
+			mpz_set(&r2,&r1);
+			mpz_mod(&r1,&temp2,p);
+
+			mpz_mul(&temp1,&q,&s1);
+			mpz_sub(&temp2,&s2,&temp1);
+			mpz_set(&s2,&s1);
+			mpz_mod(&s1,&temp2,p);
+			mpz_mul(&temp1,&q,&t1);
+			mpz_sub(&temp2,&t2,&temp1);
+			mpz_set(&t2,&t1);
+			mpz_mod(&t1,&temp2,p);
+
+		}
+
+		mpz_mod(inv,&s2,p);
+
+	}
+
+	mpz_clear(&t1);
+	mpz_clear(&t2);
+	mpz_clear(&s1);
+	mpz_clear(&s2);
+	mpz_clear(&r1);
+	mpz_clear(&r2);
+	mpz_clear(&q);
+	mpz_clear(&temp1);
+	mpz_clear(&temp2);
+	return 0;
+
+}
+
+static int ecAddPoint(MP_INT * x1, MP_INT * y1, MP_INT * x2, MP_INT * y2)
+{
+	MP_INT a,b,l;
+	MP_INT t1,t2;
+	MP_INT x3,y3;
+	MP_INT p;
+
+	mpz_init(&l);
+	mpz_init(&t1);
+	mpz_init(&t2);
+	mpz_init(&x3);
+	mpz_init(&y3);
+	mpz_init_set_str(&a,CURVE_A,16);
+	mpz_init_set_str(&b,CURVE_B,16);
+	mpz_init_set_str(&p,CURVE_P,16);
+
+	if (!mpz_cmp_ui(x1,0) && (!mpz_cmp_ui(y1,0)))
+	{
+		mpz_set(x1,x2);
+		mpz_set(y1,y2);
+	}
+	else if (mpz_cmp_ui(x2,0) || (mpz_cmp_ui(y2,0)))
+	{
+		if (mpz_cmp(x1,x2))    // not equal
+		{
+			mpz_sub(&t2,x1,x2);
+			mpz_mod(&t1,&t2,&p);
+			ecInvMod(&l,&t1,&p);
+
+			mpz_sub(&t2,y1,y2);
+			mpz_mod(&t1,&t2,&p);
+			mpz_mul(&t2,&l,&t1);
+			mpz_mod(&l,&t2,&p);
+
+		}
+		else
+		{
+			mpz_mul_ui(&t2,y1,2);
+			mpz_mod(&t1,&t2,&p);
+			ecInvMod(&l,&t1,&p);
+
+			mpz_mul(&t1,x1,x1);
+			mpz_mod(&t2,&t1,&p);
+			mpz_mul_ui(&t1,&t2,3);
+			mpz_add(&t2,&t1,&a);
+
+			mpz_mul(&t1,&l,&t2);
+			mpz_mod(&l,&t1,&p);
+
+		}
+		mpz_mul(&t1,&l,&l);
+		mpz_mod(&t2,&t1,&p);
+		mpz_sub(&t1,&t2,x2);
+		mpz_sub(&t2,&t1,x1);
+		mpz_mod(&x3,&t2,&p);
+
+		mpz_sub(&t2,x2,&x3);
+		mpz_mod(&t1,&t2,&p);
+		mpz_mul(&t2,&l,&t1);
+		mpz_mod(&t1,&t2,&p);
+		mpz_sub(&t2,&t1,y2);
+		mpz_mod(&y3,&t2,&p);
+
+		mpz_set(x1,&x3);
+		mpz_set(y1,&y3);
+	}
+
+	mpz_clear(&l);
+	mpz_clear(&a);
+	mpz_clear(&b);
+	mpz_clear(&p);
+	mpz_clear(&t1);
+	mpz_clear(&t2);
+	mpz_clear(&x3);
+	mpz_clear(&y3);
+
+	return 0;
+}
+
+static int ecMul(MP_INT * x, MP_INT * y, MP_INT * m)
+{
+	MP_INT x2,y2;
+	unsigned long long i;
+	int loop;
+	MP_INT x1,y1;
+
+	MP_INT multiple;
+
+	mpz_init_set(&multiple,m);
+	mpz_init_set(&x2,x);
+	mpz_init_set(&y2,y);
+	mpz_init_set_ui(&x1,0);
+	mpz_init_set_ui(&y1,0);
+
+	while (mpz_cmp_ui(&multiple,0))
+	{
+		i = mpz_get_ui(&multiple);
+		mpz_div_2exp(&multiple,&multiple,64);
+		for (loop = 0;loop < 64; loop++)
+		{
+			if (i & 0x01)
+			{
+				ecAddPoint(&x1,&y1,&x2,&y2);
+			}
+			ecAddPoint(&x2,&y2,&x2,&y2);
+			i>>=1;
+		}
+	}
+	mpz_set(x,&x1);
+	mpz_set(y,&y1);
+
+	mpz_clear(&x2);
+	mpz_clear(&x1);
+	mpz_clear(&y2);
+	mpz_clear(&y1);
+	mpz_clear(&multiple);
+	return 0;
+
 }
 
 static void mpc_RIGHTROTATE(uint32_t x[NUM_PARTIES], int j, uint32_t z[NUM_PARTIES]) {
@@ -594,7 +783,7 @@ static void aux_JJ(uint32_t a[NUM_PARTIES], uint32_t b[NUM_PARTIES], uint32_t c[
 	mpc_LEFTROTATE(c,10,c);
 }
 
-static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char shares[NUM_PARTIES][SHA256_INPUTS])
+static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char shares[NUM_PARTIES][ECC_INPUTS])
 {
 	int randCount = 0;
 
@@ -602,7 +791,7 @@ static int computeAuxTape(unsigned char *randomness[NUM_PARTIES],unsigned char s
 
 	memset(w,0,sizeof(int32_t)*64*NUM_PARTIES);
 	for (int i = 0; i < NUM_PARTIES; i++) {
-		for (int j = 0; j < 16; j++) {
+		for (int j = 0; j < 8; j++) {
 			w[j][i] = (shares[i][j * 4] << 24) | (shares[i][j * 4 + 1] << 16)
 							| (shares[i][j * 4 + 2] << 8) | shares[i][j * 4 + 3];
 		}
@@ -1642,43 +1831,118 @@ static uint32_t consol(uint32_t array[NUM_PARTIES])
 
 
 
-static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], unsigned char masked_input[SHA256_INPUTS], unsigned char shares[NUM_PARTIES][SHA256_INPUTS], unsigned char * inputs, int numBytes, unsigned char *randomness[NUM_PARTIES], View views[NUM_PARTIES], unsigned char party_result[NUM_PARTIES][RIPEMD160_DIGEST_LENGTH], int* countY) 
+static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], unsigned char masked_input[ECC_INPUTS], unsigned char shares[NUM_PARTIES][ECC_INPUTS], unsigned char * inputs, int numBytes, unsigned char *randomness[NUM_PARTIES], View views[NUM_PARTIES], unsigned char party_result[NUM_PARTIES][RIPEMD160_DIGEST_LENGTH], int* countY) 
 {
 
-	if ((inputs) && (numBytes > 55))
-	{	
-		printf("Input too long, aborting!");
-		return -1;
-	}
 	int randCount=0;
+
+	unsigned char masked_ecc_result[SHA256_INPUTS];
+	unsigned char party_ecc_result[NUM_PARTIES][SHA256_INPUTS];
+	{
+		MP_INT pubkey[2][NUM_PARTIES];
+		MP_INT w_ecc[NUM_PARTIES];
+		MP_INT w_eccstate;
+		MP_INT pubkey_state[2];
+		MP_INT tempInt;
+		MP_INT a,b,n,mod;
+		int k;
+		char tempstr[ECC_INPUTS*2 + 1];
+
+		mpz_init_set_str(&n,CURVE_N,16);
+		mpz_init_set_str(&mod,CURVE_P,16);
+
+		mpz_init(&w_eccstate);
+		mpz_init_set_str(&pubkey_state[0],CURVE_Gx,16);
+		mpz_init_set_str(&pubkey_state[1],CURVE_Gy,16);
+
+		for (int i = 0; i < NUM_PARTIES; i++) {
+			mpz_init(&w_ecc[i]);
+			mpz_init_set_str(&pubkey[0][i],CURVE_Gx,16);
+			mpz_init_set_str(&pubkey[1][i],CURVE_Gy,16);
+			mpz_import(&w_ecc[i],ECC_INPUTS,1,1,0,0,shares[i]);
+		}
+		if (inputs) // prove
+		{
+			mpz_import(&w_eccstate,numBytes,1,1,0,0,inputs);
+			for (int i = 0; i < NUM_PARTIES; i++) {
+				mpz_sub(&w_eccstate,&w_eccstate,&w_ecc[i]);
+				mpz_mod(&w_eccstate,&w_eccstate,&n);
+			}
+			k = ECC_INPUTS;
+			memset(masked_input,0,ECC_INPUTS);
+ 			mpz_export(masked_input,(size_t *)&k,1,1,0,0,&w_eccstate);
+			if (k < ECC_INPUTS)
+			{
+				memset(masked_input,0,ECC_INPUTS);
+     				mpz_export(&masked_input[ECC_INPUTS-k],(size_t *)&k,1,1,0,0,&w_eccstate);
+ 			}
+		}
+		else
+		{
+			mpz_import(&w_eccstate,ECC_INPUTS,1,1,0,0,masked_input);
+		}
+		for (int i = 0; i < NUM_PARTIES; i++)
+		{
+			ecMul(&pubkey[0][i],&pubkey[1][i],&w_ecc[i]);
+		}
+
+		ecMul(&pubkey_state[0],&pubkey_state[1],&w_eccstate);
+
+		k = ECC_PUBKEY_LENGTH;
+		memset(masked_ecc_result,0,ECC_PUBKEY_LENGTH);
+		mpz_export(masked_ecc_result,(size_t *)&k,1,1,0,0,&pubkey_state[0]);
+		if (k < ECC_PUBKEY_LENGTH)
+		{
+			memset(masked_ecc_result,0,ECC_PUBKEY_LENGTH);
+  			mpz_export(&masked_ecc_result[ECC_PUBKEY_LENGTH-k],(size_t *)&k,1,1,0,0,&pubkey_state[0]);
+		}
+
+		for (int i = 0; i < NUM_PARTIES; i++)
+		{
+			k = ECC_PUBKEY_LENGTH;
+ 			memset(party_ecc_result[i],0,ECC_PUBKEY_LENGTH);
+			mpz_export(party_ecc_result[i],(size_t *)&k,1,1,0,0,&pubkey[0][i]);
+			if (k < ECC_PUBKEY_LENGTH)
+			{
+				memset(party_ecc_result[i],0,ECC_PUBKEY_LENGTH);
+				mpz_export(&party_ecc_result[i][ECC_PUBKEY_LENGTH-k],(size_t *)&k,1,1,0,0,&pubkey[0][i]);
+			}
+		}
+
+		mpz_clear(&mod);
+		mpz_clear(&n);
+		mpz_clear(&w_eccstate);
+		mpz_clear(&pubkey_state[0]);
+		mpz_clear(&pubkey_state[1]);
+		for (int i = 0; i < NUM_PARTIES; i++)
+		{
+			mpz_clear(&w_ecc[i]);
+			mpz_clear(&pubkey[0][i]);
+			mpz_clear(&pubkey[1][i]);
+		}
+	}
+
 
 	uint32_t w_state[64] = {0};
 	uint32_t w[64][NUM_PARTIES] = {0};
 	memset(w,0,sizeof(int32_t)*64*NUM_PARTIES);
 	memset(w_state,0,sizeof(int32_t)*64);
 
+	masked_ecc_result[33] = 0x80;
+	masked_ecc_result[62] = (33 *8) >> 8;
+	masked_ecc_result[63] = (unsigned char) (33 * 8)&0xFF;
+	for (int j = 0; j < 16; j++)
+	{
+		w_state[j] = (masked_ecc_result[j * 4] << 24) | (masked_ecc_result[j * 4 + 1] << 16)
+							| (masked_ecc_result[j * 4 + 2] << 8) | masked_ecc_result[j * 4 + 3];
+	}
+
 	for (int i = 0; i < NUM_PARTIES; i++) {
 		for (int j = 0; j < 16; j++) {
-			w[j][i] = (shares[i][j * 4] << 24) | (shares[i][j * 4 + 1] << 16)
-							| (shares[i][j * 4 + 2] << 8) | shares[i][j * 4 + 3];
-			w_state[j] ^= w[j][i];
+			w[j][i] = (party_ecc_result[i][j * 4] << 24) | (party_ecc_result[i][j * 4 + 1] << 16)
+							| (party_ecc_result[i][j * 4 + 2] << 8) | party_ecc_result[i][j * 4 + 3];
 		}
 	}
-
-	if (inputs) // prove
-	{
-		inputs[numBytes] = 0x80;
-		inputs[62] = (numBytes *8) >> 8;
-		inputs[63] = (numBytes * 8);
-		for (int j = 0; j < 16; j++) {
-			w_state[j] ^= (inputs[j * 4] << 24) | (inputs[j * 4 + 1] << 16)
-								| (inputs[j * 4 + 2] << 8) | inputs[j * 4 + 3];
-		}
-
-		memcpy(masked_input, (unsigned char *) w_state, SHA256_INPUTS);
-	}
-	else // verify
-		memcpy((unsigned char *)w_state,masked_input, SHA256_INPUTS);
 
 	uint32_t s0[NUM_PARTIES], s1[NUM_PARTIES];
 	uint32_t t0[NUM_PARTIES], t1[NUM_PARTIES];
@@ -1978,12 +2242,6 @@ static int mpc_compute(unsigned char masked_result[RIPEMD160_DIGEST_LENGTH], uns
 		mpc_ENDIAN(hHa[i],X[i]);
 		X_state[i] = (hHa_state[i] >> 24) + ((hHa_state[i] & 0x00FF0000)>> 8)+((hHa_state[i] & 0x0000FF00) << 8) + ((hHa_state[i] & 0xFF) << 24) ;
 		X_state[i+8] = (((uint32_t)back8[i * 4 + 0] << 0) | ((uint32_t)back8[i * 4 + 1] << 8) | ((uint32_t)back8[i * 4 + 2] << 16) | ((uint32_t)back8[i * 4 + 3] << 24)) ;
-	/*	
-		for (int j = 0; j < NUM_PARTIES; j++)
-		{
-			X_state[i+8] ^= X[i+8][j];
-		}
-	*/
 	}
 	for (int i = 0; i < 5; i++)
 		for (int j = 0; j < NUM_PARTIES; j++)
@@ -2752,12 +3010,19 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 	int KEY_LEN = strlen(secret)/2;
 	unsigned char pubkey[KEY_LEN];
 	unsigned char input[SHA256_INPUTS] = {0}; // 512 bits
+	time_t now;
+	SHA256_CTX ctx,hctx,H1ctx,H2ctx;
+	unsigned char temphash1[SHA256_DIGEST_LENGTH];
+	unsigned char temphash2[SHA256_DIGEST_LENGTH];
+	unsigned char temphash3[SHA256_DIGEST_LENGTH];
 
 	memset(input,0,SHA256_INPUTS);
 	memset(message,0,sizeof(message));
-	strncpy(message,username,USER_LEN);
-	strcat(message," knows the public key to this address");
-	srand((unsigned) time(NULL));
+	time(&now);
+	if (strlen(username) > USER_LEN)
+		username[USER_LEN] = 0;
+	sprintf(message,"%s owns this address (timestamp:%lu)",username,now);
+	srand((unsigned) now);
 
 	hex2bin(secret,strlen(secret),pubkey);
 
@@ -2774,8 +3039,13 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 	unsigned char rsseed[20];
 	unsigned char rs[NUM_ROUNDS][NUM_PARTIES][4];
 
+	sha256_init(&ctx);
+	sha256_update(&ctx,message,strlen(message));
+	sha256_update(&ctx,input,i);
+	sha256_final(&ctx,temphash1);
+
         //Generating keys
-	Compute_RAND((unsigned char *)masterkeys, NUM_ROUNDS*16,input,i);  
+	Compute_RAND((unsigned char *)masterkeys, NUM_ROUNDS*16,temphash1,SHA256_DIGEST_LENGTH);  
 	memset(rsseed,0,20);
 	RAND_bytes((unsigned char *)&rsseed[4],16);
 	for (int j = 0; j < NUM_ROUNDS; j++)
@@ -2785,7 +3055,7 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 		Compute_RAND((unsigned char *)rs[j],NUM_PARTIES*4,rsseed,20);
 	}
         //Sharing secrets
-	unsigned char shares[NUM_ROUNDS][NUM_PARTIES][SHA256_INPUTS];
+	unsigned char shares[NUM_ROUNDS][NUM_PARTIES][ECC_INPUTS];
 	for (int j=0;j<NUM_ROUNDS;j++)
 	{
 		for (int k=0;k<NUM_PARTIES;k++)
@@ -2805,10 +3075,6 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 		}
 	}
 	//compute AUX Tape
-	SHA256_CTX ctx,hctx,H1ctx,H2ctx;
-	unsigned char temphash1[SHA256_DIGEST_LENGTH];
-	unsigned char temphash2[SHA256_DIGEST_LENGTH];
-	unsigned char temphash3[SHA256_DIGEST_LENGTH];
 
 	sha256_init(&H1ctx);
 	for (int k = 0; k<NUM_ROUNDS;k++)
@@ -2895,6 +3161,10 @@ char * SPPoA_Generate_Proof(char * username, char * secret, char * params)
 	int es[NUM_ROUNDS];
 	memcpy(kkwProof.H,temphash3,SHA256_DIGEST_LENGTH);
 	memcpy(kkwProof.rsseed,&rsseed[4],16);
+	sha256_init(&ctx);
+	sha256_update(&ctx,message,strlen(message));
+	sha256_update(&ctx,temphash3,SHA256_DIGEST_LENGTH);
+	sha256_final(&ctx,temphash3);
 	H3(temphash3, NUM_ONLINE, es);
 
 	int masterkeycount = 0;
@@ -3018,6 +3288,11 @@ char * SPPoA_Verify_Proof(char * prooffile) {
 	unsigned char addrbuf[100];
 	char addrstr[200];
 	unsigned long int addrstrlen;
+	SHA256_CTX ctx,hctx,H1ctx,H2ctx;
+	unsigned char H1hash[SHA256_DIGEST_LENGTH];
+	unsigned char H2hash[SHA256_DIGEST_LENGTH];
+	unsigned char temphash1[SHA256_DIGEST_LENGTH];
+	unsigned char temphash2[SHA256_DIGEST_LENGTH];
 
 	file = fopen(prooffile, "r");
 	if (!file) {
@@ -3062,12 +3337,18 @@ char * SPPoA_Verify_Proof(char * prooffile) {
 
 	int es[NUM_ROUNDS];
 	memset(es,0,NUM_ROUNDS*sizeof(int));
-	H3(kkwProof.H, NUM_ONLINE, es);
+
+	sha256_init(&ctx);
+	sha256_update(&ctx,message,strlen(message));
+	sha256_update(&ctx,kkwProof.H,SHA256_DIGEST_LENGTH);
+	sha256_final(&ctx,temphash1);
+
+	H3(temphash1, NUM_ONLINE, es);
 
 	unsigned char keys[NUM_ROUNDS][NUM_PARTIES][16];
 	unsigned char rsseed[20];
 	unsigned char rs[NUM_ROUNDS][NUM_PARTIES][4];
-	unsigned char shares[NUM_ROUNDS][NUM_PARTIES][SHA256_INPUTS];
+	unsigned char shares[NUM_ROUNDS][NUM_PARTIES][ECC_INPUTS];
 	unsigned char *randomness[NUM_ROUNDS][NUM_PARTIES];
 
 	for (int j = 0; j < NUM_ROUNDS; j++)
@@ -3118,11 +3399,6 @@ char * SPPoA_Verify_Proof(char * prooffile) {
 			onlinectr++;
 		}
 	}
-	SHA256_CTX ctx,hctx,H1ctx,H2ctx;
-	unsigned char H1hash[SHA256_DIGEST_LENGTH];
-	unsigned char H2hash[SHA256_DIGEST_LENGTH];
-	unsigned char temphash1[SHA256_DIGEST_LENGTH];
-	unsigned char temphash2[SHA256_DIGEST_LENGTH];
 	unsigned char masked_result[RIPEMD160_DIGEST_LENGTH];
 	unsigned char party_result[NUM_PARTIES][RIPEMD160_DIGEST_LENGTH];
 	View localViews[NUM_ONLINE][NUM_PARTIES];
